@@ -1,0 +1,813 @@
+{
+  "name": "Campus ComplaDint Resolution Agent",
+  "nodes": [
+    {
+      "parameters": {
+        "formTitle": "Campus Complaint Form",
+        "formDescription": "Please describe your complaint. It will be routed to the right department.",
+        "formFields": {
+          "values": [
+            {
+              "fieldLabel": "Student Name",
+              "fieldName": "student_name",
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "Student Email",
+              "fieldType": "email",
+              "fieldName": "student_email",
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "Complaint Category",
+              "fieldType": "dropdown",
+              "fieldName": "complaint_category",
+              "fieldOptions": {
+                "values": [
+                  {
+                    "option": "Hostel complaints"
+                  },
+                  {
+                    "option": "Classroom and maintenance"
+                  },
+                  {
+                    "option": "Internet and Wi-Fi"
+                  },
+                  {
+                    "option": "Cleanliness and hygiene"
+                  },
+                  {
+                    "option": "Administrative complaints"
+                  }
+                ]
+              },
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "Location",
+              "fieldName": "location",
+              "placeholder": "e.g. Hostel Block B, Room 204",
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "Complaint Description",
+              "fieldType": "textarea",
+              "fieldName": "complaint_description",
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "Date of Complaint",
+              "fieldType": "date",
+              "fieldName": "date_of_complaint",
+              "requiredField": true
+            }
+          ]
+        },
+        "options": {
+          "path": "campus-complaint-form",
+          "respondWithOptions": {
+            "values": {
+              "formSubmittedText": "Thank you. Your complaint has been submitted and will be reviewed by the concerned department."
+            }
+          }
+        }
+      },
+      "id": "3f7e5416-d70c-4030-9a69-36833459b453",
+      "name": "Student Complaint Form",
+      "type": "n8n-nodes-base.formTrigger",
+      "typeVersion": 2.6,
+      "position": [
+        0,
+        240
+      ],
+      "webhookId": "b81596ca-d53e-4d14-9ac6-63633bda5520"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const d = $json;\nconst text = (d.complaint_description || '').toLowerCase();\n\nconst categories = [\n  { name: 'Internet and Wi-Fi', dept: 'IT Department', words: ['wifi', 'wi-fi', 'internet', 'network', 'router', 'lan', 'bandwidth', 'broadband', 'portal down', 'no connection', 'slow connection'] },\n  { name: 'Cleanliness and hygiene', dept: 'Housekeeping Department', words: ['clean', 'dirty', 'garbage', 'trash', 'dustbin', 'hygiene', 'smell', 'stink', 'toilet', 'washroom', 'bathroom', 'sanitation', 'pest', 'cockroach', 'rat', 'mosquito', 'sweep'] },\n  { name: 'Classroom and maintenance', dept: 'Maintenance Department', words: ['classroom', 'projector', 'fan', 'light', 'bulb', 'ac ', 'air conditioner', 'bench', 'desk', 'chair', 'whiteboard', 'board', 'leak', 'ceiling', 'broken', 'repair', 'plumbing', 'electric', 'power', 'door', 'window', 'lift', 'elevator', 'maintenance'] },\n  { name: 'Hostel complaints', dept: 'Hostel Administration', words: ['hostel', 'warden', 'mess', 'room', 'roommate', 'dorm', 'curfew', 'laundry', 'bed', 'mattress', 'canteen food'] },\n  { name: 'Administrative complaints', dept: 'Administration Office', words: ['fee', 'fees', 'scholarship', 'certificate', 'admission', 'exam', 'result', 'marksheet', 'id card', 'document', 'registration', 'office', 'staff behaviour', 'refund', 'attendance', 'transcript'] },\n];\n\nconst deptByCategory = {\n  'Hostel complaints': 'Hostel Administration',\n  'Classroom and maintenance': 'Maintenance Department',\n  'Internet and Wi-Fi': 'IT Department',\n  'Cleanliness and hygiene': 'Housekeeping Department',\n  'Administrative complaints': 'Administration Office',\n};\n\n// Score each category by keyword matches in the description\nlet best = null;\nlet bestScore = 0;\nfor (const c of categories) {\n  const score = c.words.filter(w => text.includes(w)).length;\n  if (score > bestScore) { best = c; bestScore = score; }\n}\n\n// Fallback: use the category the student selected\nconst selected = d.complaint_category;\nconst category = best ? best.name : (deptByCategory[selected] ? selected : 'Administrative complaints');\nconst department = deptByCategory[category];\n\n// Priority\nconst high = ['urgent', 'emergency', 'danger', 'dangerous', 'unsafe', 'safety', 'fire', 'short circuit', 'sparking', 'electric shock', 'harass', 'ragging', 'threat', 'assault', 'medical', 'injury', 'injured', 'flood', 'gas leak', 'no water', 'no electricity', 'food poison', 'security', 'exam tomorrow', 'immediately', 'collapsed'];\nconst medium = ['not working', 'broken', 'leak', 'slow', 'down', 'delay', 'delayed', 'pending', 'dirty', 'overflow', 'smell', 'stink', 'several days', 'days', 'week', 'repeated', 'again', 'no internet', 'unavailable'];\nlet priority = 'Low';\nif (high.some(w => text.includes(w))) priority = 'High';\nelse if (medium.some(w => text.includes(w))) priority = 'Medium';\n\n// Unique complaint ID: CMP-YYYYMMDD-HHMMSS-XXXX\nconst now = new Date();\nconst pad = n => String(n).padStart(2, '0');\nconst stamp = now.getUTCFullYear() + pad(now.getUTCMonth() + 1) + pad(now.getUTCDate()) + '-' + pad(now.getUTCHours()) + pad(now.getUTCMinutes()) + pad(now.getUTCSeconds());\nconst rand = Math.random().toString(36).substring(2, 6).toUpperCase();\n\nreturn {\n  json: {\n    ...d,\n    complaint_id: 'CMP-' + stamp + '-' + rand,\n    identified_category: category,\n    assigned_department: department,\n    priority,\n    status: 'Submitted',\n  },\n};"
+      },
+      "id": "7876f3b9-4e94-4e96-9e27-0b1f09dd5e13",
+      "name": "Analyse Complaint",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        224,
+        240
+      ]
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=Analyse this student complaint:\n\nStudent-selected category: {{ $('Analyse Complaint').item.json.complaint_category }}\nLocation: {{ $('Analyse Complaint').item.json.location }}\nComplaint description: {{ $('Analyse Complaint').item.json.complaint_description }}\n\nIdentify the correct complaint category and department.\n\nChoose priority as High, Medium or Low.\n\nReturn JSON with exactly these fields: category, assigned_department, priority, reason.\n\nOnly if the complaint describes a genuine safety risk (electrical sparks, fire, gas leak, flooding, structural damage, harassment, ragging, threats, medical emergency or other danger to people), assign High priority and start the reason with \"IMMEDIATE HUMAN ATTENTION REQUIRED:\". Ordinary issues such as Wi-Fi or internet problems, broken fans or lights, cleanliness, or administrative requests are NOT safety risks: never use that phrase for them, and assign Low or Medium priority (High only if it is clearly urgent, such as an exam happening within a day).",
+        "hasOutputParser": true,
+        "options": {
+          "systemMessage": "You are a Campus Complaint Analysis Assistant for a university. Category must be exactly one of: Hostel complaints, Classroom and maintenance, Internet and Wi-Fi, Cleanliness and hygiene, Administrative complaints. Department must be exactly one of: Hostel Administration, Maintenance Department, IT Department, Housekeeping Department, Administration Office (matching the category in that order). Priority must be exactly High, Medium or Low. Keep the reason short and simple. Do not invent complaint details. The phrase \"IMMEDIATE HUMAN ATTENTION REQUIRED:\" is reserved for genuine safety risks to people and must never appear for routine Wi-Fi, maintenance, cleanliness or administrative complaints."
+        }
+      },
+      "id": "c9ae372f-802e-4e1c-af1b-20c9bb0fc668",
+      "name": "AI Agent",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 3.1,
+      "position": [
+        448,
+        240
+      ]
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "value": "gpt-4o-mini",
+          "mode": "list",
+          "cachedResultName": "gpt-4o-mini"
+        },
+        "builtInTools": {},
+        "options": {}
+      },
+      "id": "fdf21583-c004-4051-89ec-895d99eadc20",
+      "name": "OpenAI Chat Model",
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1.3,
+      "position": [
+        464,
+        480
+      ],
+      "credentials": {
+        "openAiApi": {
+          "id": null,
+          "name": "",
+          "__aiGatewayManaged": true
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsonSchemaExample": "{\"category\": \"Internet and Wi-Fi\", \"assigned_department\": \"IT Department\", \"priority\": \"Medium\", \"reason\": \"Short explanation\"}"
+      },
+      "id": "7ae7c0cd-efe7-4f71-9e99-53424f890049",
+      "name": "Complaint Output Parser",
+      "type": "@n8n/n8n-nodes-langchain.outputParserStructured",
+      "typeVersion": 1.3,
+      "position": [
+        592,
+        480
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "a1",
+              "name": "Complaint ID",
+              "value": "={{ $(\"Analyse Complaint\").item.json.complaint_id }}",
+              "type": "string"
+            },
+            {
+              "id": "a2",
+              "name": "Student Name",
+              "value": "={{ $(\"Analyse Complaint\").item.json.student_name }}",
+              "type": "string"
+            },
+            {
+              "id": "a3",
+              "name": "Student Email",
+              "value": "={{ $(\"Analyse Complaint\").item.json.student_email }}",
+              "type": "string"
+            },
+            {
+              "id": "a4",
+              "name": "Location",
+              "value": "={{ $(\"Analyse Complaint\").item.json.location }}",
+              "type": "string"
+            },
+            {
+              "id": "a5",
+              "name": "Complaint Description",
+              "value": "={{ $(\"Analyse Complaint\").item.json.complaint_description }}",
+              "type": "string"
+            },
+            {
+              "id": "a6",
+              "name": "Date of Complaint",
+              "value": "={{ $(\"Analyse Complaint\").item.json.date_of_complaint }}",
+              "type": "string"
+            },
+            {
+              "id": "a7",
+              "name": "Category",
+              "value": "={{ $json.output?.category || $(\"Analyse Complaint\").item.json.identified_category }}",
+              "type": "string"
+            },
+            {
+              "id": "a8",
+              "name": "Assigned Department",
+              "value": "={{ $json.output?.assigned_department || $(\"Analyse Complaint\").item.json.assigned_department }}",
+              "type": "string"
+            },
+            {
+              "id": "a9",
+              "name": "Priority",
+              "value": "={{ $json.output?.priority || $(\"Analyse Complaint\").item.json.priority }}",
+              "type": "string"
+            },
+            {
+              "id": "a10",
+              "name": "Status",
+              "value": "Submitted",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "b6494324-3943-4a0e-a422-9d0f9a1a59de",
+      "name": "Complaint Record",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.5,
+      "position": [
+        800,
+        240
+      ]
+    },
+    {
+      "parameters": {
+        "dataTableId": {
+          "__rl": true,
+          "value": "4tL6O00PB0HZ1rS6",
+          "mode": "list",
+          "cachedResultName": "Campus_Complaints",
+          "cachedResultUrl": "/projects/Gz7xcgJVdBbmR9tL/datatables/4tL6O00PB0HZ1rS6"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Complaint_ID": "={{ $json[\"Complaint ID\"] }}",
+            "Student_Name": "={{ $json[\"Student Name\"]}}",
+            "Student_Email": "={{ $json[\"Student Email\"] }}",
+            "Location": "={{ $json[\"Location\"] }}",
+            "Complaint_Description": "={{ $json[\"Complaint Description\"] }}",
+            "Date_of_Complaint": "={{ $json[\"Date of Complaint\"] }}",
+            "Category": "={{ $json[\"Category\"] }}",
+            "Assigned_Department": "={{ $json[\"Assigned Department\"] }}",
+            "Priority": "={{ $json[\"Priority\"] }}",
+            "Status": "={{ $json[\"Status\"] }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "Complaint_ID",
+              "displayName": "Complaint_ID",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "Student_Name",
+              "displayName": "Student_Name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "Student_Email",
+              "displayName": "Student_Email",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "Location",
+              "displayName": "Location",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "Complaint_Description",
+              "displayName": "Complaint_Description",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "Date_of_Complaint",
+              "displayName": "Date_of_Complaint",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "Category",
+              "displayName": "Category",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "Assigned_Department",
+              "displayName": "Assigned_Department",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "Priority",
+              "displayName": "Priority",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "Status",
+              "displayName": "Status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "id": "4e5447d4-7633-40f2-a9c2-1ca84b877961",
+      "name": "Insert row",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        1024,
+        240
+      ]
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 4
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.Assigned_Department }}",
+                    "rightValue": "Hostel Administration",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "id": "5b0b893d-5702-4d65-b7cb-5a9e24b05875"
+                  }
+                ],
+                "combinator": "and"
+              }
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 4
+                },
+                "conditions": [
+                  {
+                    "id": "9a1d32ff-a762-4ef2-a2ed-03ba3cbf7b0a",
+                    "leftValue": "={{ $json.Assigned_Department }}",
+                    "rightValue": "Maintenance Department",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals",
+                      "name": "filter.operator.equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              }
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 4
+                },
+                "conditions": [
+                  {
+                    "id": "0c5be4d7-acff-4866-b5c2-cc0d86d41a6b",
+                    "leftValue": "={{ $json.Assigned_Department }}",
+                    "rightValue": "IT Department",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals",
+                      "name": "filter.operator.equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              }
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 4
+                },
+                "conditions": [
+                  {
+                    "id": "278568ae-a81f-418f-b90b-3ebc89bd3648",
+                    "leftValue": "={{ $json.Assigned_Department }}",
+                    "rightValue": "Housekeeping Department",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals",
+                      "name": "filter.operator.equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              }
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 4
+                },
+                "conditions": [
+                  {
+                    "id": "b7feacd5-ff7f-463c-bef1-e8018374861b",
+                    "leftValue": "={{ $json.Assigned_Department }}",
+                    "rightValue": "Administration Office",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals",
+                      "name": "filter.operator.equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              }
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.5,
+      "position": [
+        1408,
+        96
+      ],
+      "id": "4d12db84-f85d-4ebf-b3ca-3ad12a55ce80",
+      "name": "Switch"
+    },
+    {
+      "parameters": {
+        "sendTo": "={{ $('Complaint Record').item.json['Student Email'] }}",
+        "subject": "=Your Campus Complaint Has Been Registered – {{ $json.Complaint_ID }}",
+        "message": "=\n<!DOCTYPE html>\n<html>\n<head>\n  <style>\n    body {\n      font-family: Arial, sans-serif;\n      background-color: #f4f6f9;\n      padding: 20px;\n      color: #333333;\n    }\n    .container {\n      max-width: 600px;\n      margin: auto;\n      background: #ffffff;\n      border-radius: 10px;\n      padding: 25px;\n    }\n    .header {\n      background: #17365d;\n      color: white;\n      padding: 18px;\n      text-align: center;\n      border-radius: 8px;\n    }\n    .details {\n      background: #f1f5f9;\n      padding: 15px;\n      border-radius: 8px;\n      line-height: 1.8;\n    }\n    .footer {\n      margin-top: 25px;\n      font-size: 13px;\n      color: #666666;\n    }\n  </style>\n</head>\n<body>\n  <div class=\"container\">\n\n    <div class=\"header\">\n      <h2>Complaint Successfully Registered</h2>\n      <p>Campus Complaint Resolution System</p>\n    </div>\n\n    <p>Dear {{ $json.Student_Name }},</p>\n\n    <p>\n      Thank you for submitting your complaint.\n      We are pleased to inform you that your complaint\n      has been successfully registered in our system.\n    </p>\n\n    <h3>Complaint Details</h3>\n\n    <div class=\"details\">\n      <b>Complaint ID:</b> {{ $json.Complaint_ID }}<br>\n      <b>Category:</b> {{ $json.Category }}<br>\n      <b>Assigned Department:</b> {{ $json.Assigned_Department }}<br>\n      <b>Priority:</b> {{ $json.Priority }}<br>\n      <b>Status:</b> {{ $json.Status }}\n    </div>\n\n    <p>\n      Your complaint has been forwarded to the\n      concerned department for further action.\n      Our team will work towards resolving it as soon\n      as possible.\n    </p>\n\n    <p>\n      You will receive another email notification\n      once your complaint has been resolved.\n    </p>\n\n    <p>Thank you for your patience and cooperation.</p>\n\n    <div class=\"footer\">\n      <p>Regards,<br>\n      <b>Campus Complaint Resolution Team</b></p>\n      <p>This is an automated acknowledgement email.</p>\n    </div>\n\n  </div>\n</body>\n</html>\n",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        1392,
+        416
+      ],
+      "id": "3bc4d62e-5f55-4ab6-9102-ab4a372b7ac6",
+      "name": "Student Acknowledgement Email",
+      "webhookId": "4b7d2192-bf87-4b13-890d-51691dc17af8",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "gCZVYfE1yYEOOjks",
+          "name": "Gmail account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "sendTo": "harsh.shridhar.gnmba27@iilm.edu",
+        "subject": "=New Hostel Complaint Registered – {{ $json.Complaint_ID }}",
+        "message": "= <h2>New Hostel Complaint Registered</h2>  <p>Dear Hostel Administration Team,</p>  <p>A new complaint has been registered through the Campus Complaint Resolution System.</p>  <h3>Complaint Details</h3>  <ul> <li><b>Complaint ID:</b> {{ $json.Complaint_ID }}</li> <li><b>Student Name:</b> {{ $json.Student_Name }}</li> <li><b>Student Email:</b> {{ $json.Student_Email }}</li> <li><b>Location:</b> {{ $json.Location }}</li> <li><b>Complaint Description:</b> {{ $json.Complaint_Description }}</li> <li><b>Priority:</b> {{ $json.Priority }}</li> <li><b>Status:</b> {{ $json.Status }}</li> </ul>  <p>Please review this complaint and take the necessary action.</p>  <p>Regards,<br> Campus Complaint Resolution System</p>",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        1696,
+        -144
+      ],
+      "id": "51859c51-43d8-4ed2-8fe6-34807ba076df",
+      "name": "Hostel Administration Email",
+      "webhookId": "eb0243fd-def3-4acf-8cef-41395f384509",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "gCZVYfE1yYEOOjks",
+          "name": "Gmail account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "sendTo": "aasthaagg01@gmail.com",
+        "subject": "=New Maintenance Complaint Registered – {{ $json.Complaint_ID }}",
+        "message": "=<h2>New Maintenance Complaint</h2>\n<p>Dear Maintenance Team,</p>\n<p>A new maintenance complaint has been registered.</p>\n<ul>\n<li>Complaint ID: {{ $json.Complaint_ID }}</li>\n<li>Student Name: {{ $json.Student_Name }}</li>\n<li>Student Email: {{ $json.Student_Email }}</li>\n<li>Location: {{ $json.Location }}</li>\n<li>Complaint: {{ $json.Complaint_Description }}</li>\n<li>Priority: {{ $json.Priority }}</li>\n<li>Status: {{ $json.Status }}</li>\n</ul>\n<p>Please review and take necessary action.</p>\n<p>Regards,<br>Campus Complaint Resolution System</p>",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        1696,
+        48
+      ],
+      "id": "a0c1e042-0385-4008-8629-381370236252",
+      "name": "Maintenance Department Email",
+      "webhookId": "d62b751a-3f08-4601-8c57-913f73da3dd8",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "gCZVYfE1yYEOOjks",
+          "name": "Gmail account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "sendTo": "anushka.das.gnmba27@iilm.edu",
+        "subject": "=New IT Complaint Registered – {{ $json.Complaint_ID }}",
+        "message": "=<h2>New IT Complaint</h2> <p>Dear IT Team,</p> <p>A new Internet / Wi-Fi complaint has been registered.</p> <ul> <li>Complaint ID: {{ $json.Complaint_ID }}</li> <li>Student Name: {{ $json.Student_Name }}</li> <li>Student Email: {{ $json.Student_Email }}</li> <li>Location: {{ $json.Location }}</li> <li>Complaint: {{ $json.Complaint_Description }}</li> <li>Priority: {{ $json.Priority }}</li> <li>Status: {{ $json.Status }}</li> </ul> <p>Please review and take necessary action.</p> <p>Regards,<br>Campus Complaint Resolution System</p>",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        1696,
+        240
+      ],
+      "id": "e1bffd5d-2228-42c8-9b13-6dce01b1a7c2",
+      "name": "IT Department Email",
+      "webhookId": "5e3f8cc0-c953-4de2-af4b-38614fde0b1e",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "gCZVYfE1yYEOOjks",
+          "name": "Gmail account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "sendTo": "mohit.gupta.gnmba27@iilm.edu",
+        "subject": "=New Housekeeping Complaint Registered – {{ $json.Complaint_ID }}",
+        "message": "=<h2>New Housekeeping Complaint</h2> <p>Dear Housekeeping Team,</p> <p>A new cleanliness / hygiene complaint has been registered.</p> <ul> <li>Complaint ID: {{ $json.Complaint_ID }}</li> <li>Student Name: {{ $json.Student_Name }}</li> <li>Student Email: {{ $json.Student_Email }}</li> <li>Location: {{ $json.Location }}</li> <li>Complaint: {{ $json.Complaint_Description }}</li> <li>Priority: {{ $json.Priority }}</li> <li>Status: {{ $json.Status }}</li> </ul> <p>Please review and take necessary action.</p> <p>Regards,<br>Campus Complaint Resolution System</p>",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        1696,
+        448
+      ],
+      "id": "b5358763-ad3d-4b39-8f86-796a43b297cb",
+      "name": "Housekeeping Department Email",
+      "webhookId": "e81e03fc-ee14-4171-9183-9f714d405117",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "gCZVYfE1yYEOOjks",
+          "name": "Gmail account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "sendTo": "saraswatriddhi31@gmail.com",
+        "subject": "=New Administrative Complaint Registered – {{ $json.Complaint_ID }}",
+        "message": "=<h2>New Administrative Complaint</h2> <p>Dear Administration Team,</p> <p>A new administrative complaint has been registered.</p> <ul> <li>Complaint ID: {{ $json.Complaint_ID }}</li> <li>Student Name: {{ $json.Student_Name }}</li> <li>Student Email: {{ $json.Student_Email }}</li> <li>Location: {{ $json.Location }}</li> <li>Complaint: {{ $json.Complaint_Description }}</li> <li>Priority: {{ $json.Priority }}</li> <li>Status: {{ $json.Status }}</li> </ul> <p>Please review and take necessary action.</p> <p>Regards,<br>Campus Complaint Resolution System</p>",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        1696,
+        640
+      ],
+      "id": "347cc2a5-2c14-4391-8268-32bf4493778f",
+      "name": "Administration Office Email",
+      "webhookId": "40d21953-6d14-4968-a72b-5dc7add992fd",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "gCZVYfE1yYEOOjks",
+          "name": "Gmail account"
+        }
+      }
+    }
+  ],
+  "pinData": {
+    "Student Complaint Form": [
+      {
+        "json": {
+          "student_name": "Arvi",
+          "student_email": "riddhisaraswat09@gmail.com",
+          "complaint_category": "Administrative complaints",
+          "location": "Common area",
+          "complaint_description": "Water logging ",
+          "date_of_complaint": "2026-11-10",
+          "submittedAt": "2026-11-19T20:00:18.783+05:30",
+          "formMode": "production"
+        },
+        "pairedItem": {
+          "item": 0
+        }
+      }
+    ]
+  },
+  "connections": {
+    "Student Complaint Form": {
+      "main": [
+        [
+          {
+            "node": "Analyse Complaint",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Analyse Complaint": {
+      "main": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Agent": {
+      "main": [
+        [
+          {
+            "node": "Complaint Record",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Complaint Output Parser": {
+      "ai_outputParser": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_outputParser",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Complaint Record": {
+      "main": [
+        [
+          {
+            "node": "Insert row",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Insert row": {
+      "main": [
+        [
+          {
+            "node": "Switch",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Student Acknowledgement Email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Switch": {
+      "main": [
+        [
+          {
+            "node": "Hostel Administration Email",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Maintenance Department Email",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "IT Department Email",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Housekeeping Department Email",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Administration Office Email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Student Acknowledgement Email": {
+      "main": [
+        [
+          {
+            "node": "Switch",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "timeSavedMode": "fixed",
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false
+  },
+  "versionId": "71d4b986-3e0d-47cb-ba75-bc1a125b89dd",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "2175b071cdeb02bb8e7083548b25649c91c1517674d5bd25bbb11fc2a10989b4"
+  },
+  "nodeGroups": [],
+  "id": "VCCi8wUzQmQwnhec",
+  "tags": []
+}
